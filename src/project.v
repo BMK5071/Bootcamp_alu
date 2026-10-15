@@ -1,27 +1,134 @@
-/*
- * Copyright (c) 2024 Your Name
- * SPDX-License-Identifier: Apache-2.0
- */
-
-`default_nettype none
-
-module tt_um_example (
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // IOs: Input path
-    output wire [7:0] uio_out,  // IOs: Output path
-    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
-    input  wire       ena,      // always 1 when the design is powered, so you can ignore it
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset_n - low to reset
+module tt_um_alu8bit (
+    input  wire [7:0] ui_in,
+    output wire [7:0] uo_out,
+    input  wire [7:0] uio_in,
+    output wire [7:0] uio_out,
+    output wire [7:0] uio_oe,
+    input  wire ena,
+    input  wire clk,
+    input  wire rst_n
 );
 
-  // All output pins must be assigned. If not used, assign to 0.
-  assign uo_out  = ui_in + uio_in;  // Example: ou_out is the sum of ui_in and uio_in
-  assign uio_out = 0;
-  assign uio_oe  = 0;
+// data bus
+wire [7:0] ui = ui_in;
 
-  // List all unused inputs to prevent warnings
-  wire _unused = &{ena, clk, rst_n, 1'b0};
+// operand registers
+reg [7:0] A;
+reg [7:0] B;
+
+// ALU outputs
+reg [7:0] result;
+reg zero;
+reg carry;
+
+// control signals
+wire loadA   = uio_in[0];
+wire loadB   = uio_in[1];
+wire execute = uio_in[2];
+wire [2:0] opcode = uio_in[5:3];
+
+// combinational ALU
+reg [7:0] alu_result;
+reg alu_zero;
+reg alu_carry;
+reg [8:0] temp;
+
+always @(*) begin
+    alu_result = result;
+    alu_zero = zero;
+    alu_carry = carry;
+    temp = 9'b0;
+
+    case(opcode)
+
+        3'b000: begin
+            temp = A + B;
+            alu_result = temp[7:0];
+            alu_carry = temp[8];
+        end
+
+        3'b001: begin
+            temp = A - B;
+            alu_result = temp[7:0];
+            alu_carry = temp[8];
+        end
+
+        3'b010: begin
+            alu_result = A & B;
+            alu_carry = 0;
+        end
+
+        3'b011: begin
+            alu_result = A | B;
+            alu_carry = 0;
+        end
+
+        3'b100: begin
+            alu_result = A ^ B;
+            alu_carry = 0;
+        end
+
+        3'b101: begin
+            alu_result = A << 1;
+            alu_carry = A[7];
+        end
+
+        3'b110: begin
+            alu_result = A >> 1;
+            alu_carry = A[0];
+        end
+
+        3'b111: begin
+            alu_result = (A == B) ? 8'hFF : 8'h00;
+            alu_carry = 0;
+        end
+
+    endcase
+
+    alu_zero = (alu_result == 8'b0);
+end
+
+
+// sequential registers
+always @(posedge clk or negedge rst_n) begin
+    if(!rst_n) begin
+        A <= 8'b0;
+        B <= 8'b0;
+        result <= 8'b0;
+        zero <= 0;
+        carry <= 0;
+    end
+
+    else if(ena) begin
+
+        if(loadA)
+            A <= ui;
+
+        if(loadB)
+            B <= ui;
+
+        if(execute) begin
+            result <= alu_result;
+            zero   <= alu_zero;
+            carry  <= alu_carry;
+        end
+
+    end
+end
+
+
+// output result
+assign uo_out = result;
+
+
+// flag outputs
+assign uio_out[6] = zero;
+assign uio_out[7] = carry;
+
+// unused outputs
+assign uio_out[5:0] = 6'b000000;
+
+// enable flag outputs
+assign uio_oe = 8'b11000000;
 
 endmodule
